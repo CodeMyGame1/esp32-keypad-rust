@@ -8,7 +8,6 @@
 #![deny(clippy::large_stack_frames)]
 
 use esp_backtrace as _;
-
 use esp_hal::{
     clock::CpuClock,
     delay::Delay,
@@ -16,6 +15,7 @@ use esp_hal::{
     main,
     peripherals::Peripherals,
 };
+use heapless::Deque;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -58,9 +58,13 @@ fn run_keypad(p: Peripherals) -> ! {
 
     let delay = Delay::new();
 
+    // Used for the core keypad loop.
     let mut candidate: Option<(usize, usize)> = None;
     let mut stable: Option<(usize, usize)> = None;
     let mut matching_scans: u8 = 0;
+
+    // i love state machines
+    let mut keypad_queue: Deque<char, 32> = Deque::new();
 
     log::info!("Keypad ready!");
 
@@ -100,14 +104,18 @@ fn run_keypad(p: Peripherals) -> ! {
             stable = candidate;
 
             if let Some((column, row)) = stable {
+                let key: char = keys[column][row];
+
                 log::info!(
                     "Pressed: {} (connector pins {} and {})",
-                    keys[column][row],
+                    key,
                     column + 1,
                     row + 5
                 );
 
-                // TODO: Button handling code here.
+                if let Err(_value) = keypad_queue.push_back(key) {
+                    log::error!("CRITICAL ERROR: KEYPAD QUEUE FULL, INPUT DROPPED.");
+                }
             }
         }
 
