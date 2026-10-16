@@ -27,36 +27,39 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 
 fn run_keypad(p: Peripherals) -> ! {
-    let row_config
+    let output_config
         = OutputConfig::default().with_drive_mode(DriveMode::OpenDrain);
-    let col_config
+    let input_config
         = InputConfig::default().with_pull(Pull::Up);
 
-    let mut rows = [
-        Output::new(p.GPIO13, Level::High, row_config),
-        Output::new(p.GPIO14, Level::High, row_config),
-        Output::new(p.GPIO25, Level::High, row_config),
-        Output::new(p.GPIO26, Level::High, row_config),
+    // Connector pins 1-4 are physical columns, driven one at a time.
+    let mut driven_columns = [
+        Output::new(p.GPIO13, Level::High, output_config),
+        Output::new(p.GPIO12, Level::High, output_config),
+        Output::new(p.GPIO14, Level::High, output_config),
+        Output::new(p.GPIO27, Level::High, output_config),
     ];
 
-    let cols = [
-        Input::new(p.GPIO27, col_config),
-        Input::new(p.GPIO32, col_config),
-        Input::new(p.GPIO33, col_config),
-        Input::new(p.GPIO23, col_config),
+    // Connector pins 5-8 are physical rows, read as inputs.
+    let sensed_rows = [
+        Input::new(p.GPIO26, input_config),
+        Input::new(p.GPIO25, input_config),
+        Input::new(p.GPIO33, input_config),
+        Input::new(p.GPIO32, input_config),
     ];
 
+    // Index by driven physical column, then sensed physical row.
     let keys = [
-        ['1', '2', '3', 'A'],
-        ['4', '5', '6', 'B'],
-        ['7', '8', '9', 'C'],
-        ['*', '0', '#', 'D'],
+        ['1', '4', '7', '*'],
+        ['2', '5', '8', '0'],
+        ['3', '6', '9', '#'],
+        ['A', 'B', 'C', 'D'],
     ];
 
     let delay = Delay::new();
 
-    let mut candidate: Option<char> = None;
-    let mut stable: Option<char> = None;
+    let mut candidate: Option<(usize, usize)> = None;
+    let mut stable: Option<(usize, usize)> = None;
     let mut matching_scans: u8 = 0;
 
     log::info!("Keypad ready!");
@@ -65,19 +68,19 @@ fn run_keypad(p: Peripherals) -> ! {
         let mut detected = None;
         let mut pressed_count = 0;
 
-        for r in 0..4 {
-            // LOW activates this row, HIGH releases it.
-            rows[r].set_low();
+        for column in 0..4 {
+            // LOW activates this column, HIGH releases it.
+            driven_columns[column].set_low();
             delay.delay_micros(10);
 
-            for c in 0..4 {
-                if cols[c].is_low() {
-                    detected = Some(keys[r][c]);
+            for row in 0..4 {
+                if sensed_rows[row].is_low() {
+                    detected = Some((column, row));
                     pressed_count += 1;
                 }
             }
 
-            rows[r].set_high();
+            driven_columns[column].set_high();
         }
 
         // Accept only one key at a time.
@@ -96,8 +99,13 @@ fn run_keypad(p: Peripherals) -> ! {
         if (matching_scans >= 5) && (candidate != stable) {
             stable = candidate;
 
-            if let Some(key) = stable {
-                log::info!("Pressed: {}", key);
+            if let Some((column, row)) = stable {
+                log::info!(
+                    "Pressed: {} (connector pins {} and {})",
+                    keys[column][row],
+                    column + 1,
+                    row + 5
+                );
 
                 // TODO: Button handling code here.
             }
