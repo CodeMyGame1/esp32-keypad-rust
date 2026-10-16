@@ -7,6 +7,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+// ##### IMPORTS #####
 use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
@@ -15,7 +16,7 @@ use esp_hal::{
     main,
     peripherals::Peripherals,
 };
-use heapless::Deque;
+use heapless::{Deque, String};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -26,6 +27,43 @@ esp_bootloader_esp_idf::esp_app_desc!();
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 
+// ##### PARSER #####
+struct Parser {
+    // String buffer that stores sequence of inputted characters.
+    input: String<32>,
+}
+
+impl Parser {
+    fn new() -> Self {
+        Self {
+            input: String::new(),
+        }
+    }
+
+    // Accept characters and append to the string buffer.
+    fn accept(&mut self, character: char) {
+        match character {
+            // Submit.
+            '#' => {
+                log::info!("Submitted: {}", self.input.as_str());
+                // TODO: WARNING. RIGHT NOW THE CODE JUST CLEARS INPUT
+                // WITHOUT USING IT ANYWHERE.
+                self.input.clear();
+            }
+            // Backspace.
+            '*' => {
+                self.input.pop();
+            }
+            other => {
+                if self.input.push(other).is_err() {
+                    log::error!("Input buffer full");
+                }
+            }
+        }
+    }
+}
+
+// ##### KEYPAD LOOP #####
 fn run_keypad(p: Peripherals) -> ! {
     let output_config
         = OutputConfig::default().with_drive_mode(DriveMode::OpenDrain);
@@ -65,6 +103,7 @@ fn run_keypad(p: Peripherals) -> ! {
 
     // i love state machines
     let mut keypad_queue: Deque<char, 32> = Deque::new();
+    let mut parser = Parser::new();
 
     log::info!("Keypad ready!");
 
@@ -117,6 +156,11 @@ fn run_keypad(p: Peripherals) -> ! {
                     log::error!("CRITICAL ERROR: KEYPAD QUEUE FULL, INPUT DROPPED.");
                 }
             }
+        }
+
+        // I LOVE STATE MACHINES
+        while let Some(character) = keypad_queue.pop_front() {
+            parser.accept(character);
         }
 
         delay.delay_millis(5);
